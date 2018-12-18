@@ -48,7 +48,10 @@ class FormRequest(Request):
         form = _get_form(response, formname, formid, formnumber, formxpath)
         formdata = _get_inputs(form, formdata, dont_click, clickdata, response)
         url = _get_form_url(form, kwargs.pop('url', None))
-        method = kwargs.pop('method', form.method)
+        if form is None: #todo:mmmm
+            method = kwargs.pop('method', 'POST')
+        else:
+            method = kwargs.pop('method', form.method)
         return cls(url=url, method=method, formdata=formdata, **kwargs)
 
 
@@ -58,6 +61,8 @@ def _get_form_url(form, url):
         if action is None:
             return form.base_url
         return urljoin(form.base_url, strip_html5_whitespace(action))
+    if form is None: #todo:mmmm
+        return url
     return urljoin(form.base_url, url)
 
 
@@ -74,6 +79,7 @@ def _get_form(response, formname, formid, formnumber, formxpath):
                             base_url=get_base_url(response))
     forms = root.xpath('//form')
     if not forms:
+        return None #todo:mmmm
         raise ValueError("No <form> element found in %s" % response)
 
     if formname is not None:
@@ -114,13 +120,12 @@ def _get_form(response, formname, formid, formnumber, formxpath):
 
 def _get_inputs(form, formdata, dont_click, clickdata, response):
     try:
-        formdata_keys = dict(formdata or ()).keys()
+        formdata = dict(formdata or ())
     except (ValueError, TypeError):
         raise ValueError('formdata should be a dict or iterable of tuples')
 
-    if not formdata:
-        formdata = ()
-    inputs = form.xpath('descendant::textarea'
+    if form: #todo:mmmm
+        inputs = form.xpath('descendant::textarea'
                         '|descendant::select'
                         '|descendant::input[not(@type) or @type['
                         ' not(re:test(., "^(?:submit|image|reset)$", "i"))'
@@ -128,19 +133,18 @@ def _get_inputs(form, formdata, dont_click, clickdata, response):
                         '  not(re:test(., "^(?:checkbox|radio)$", "i")))]]',
                         namespaces={
                             "re": "http://exslt.org/regular-expressions"})
-    values = [(k, u'' if v is None else v)
+        values = [(k, u'' if v is None else v)
               for k, v in (_value(e) for e in inputs)
-              if k and k not in formdata_keys]
+              if k and k not in formdata]
+    else:
+        values = []
 
     if not dont_click:
         clickable = _get_clickable(clickdata, form)
         if clickable and clickable[0] not in formdata and not clickable[0] is None:
             values.append(clickable)
 
-    if isinstance(formdata, dict):
-        formdata = formdata.items()
-
-    values.extend((k, v) for k, v in formdata if v is not None)
+    values.extend((k, v) for k, v in formdata.items() if v is not None)
     return values
 
 
@@ -173,10 +177,13 @@ def _get_clickable(clickdata, form):
     if the latter is given. If not, it returns the first
     clickable element found
     """
-    clickables = [
+    clickables = [] #todo:mmmm
+    if form is not None:  #todo:mmmm
+      clickables = [
         el for el in form.xpath(
-            'descendant::input[re:test(@type, "^(submit|image)$", "i")]'
-            '|descendant::button[not(@type) or re:test(@type, "^submit$", "i")]',
+            'descendant::*[(self::input or self::button)'
+            ' and re:test(@type, "^submit$", "i")]'
+            '|descendant::button[not(@type)]',
             namespaces={"re": "http://exslt.org/regular-expressions"})
         ]
     if not clickables:
